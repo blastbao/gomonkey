@@ -54,11 +54,15 @@ func NewPatches() *Patches {
 	return create()
 }
 
+
+
 func (this *Patches) ApplyFunc(target, double interface{}) *Patches {
 	t := reflect.ValueOf(target)
 	d := reflect.ValueOf(double)
 	return this.ApplyCore(t, d)
 }
+
+
 
 func (this *Patches) ApplyMethod(target reflect.Type, methodName string, double interface{}) *Patches {
 	m, ok := target.MethodByName(methodName)
@@ -132,12 +136,12 @@ func (this *Patches) Reset() {
 	}
 }
 
-func (this *Patches) ApplyCore(target, double reflect.Value) *Patches {
-	this.check(target, double)
+func (this *Patches) ApplyCore(target, replacement reflect.Value) *Patches {
+	this.check(target, replacement)
 	if _, ok := this.originals[target]; ok {
 		panic("patch has been existed")
 	}
-	original := replace(*(*uintptr)(getPointer(target)), uintptr(getPointer(double)))
+	original := replace(*(*uintptr)(getPointer(target)), uintptr(getPointer(replacement)))
 	this.originals[target] = original
 	return this
 }
@@ -156,12 +160,31 @@ func (this *Patches) check(target, double reflect.Value) {
 	}
 }
 
-func replace(target, double uintptr) []byte {
-	code := buildJmpDirective(double)
-	bytes := entryAddress(target, len(code))
+// 当执行 replace(target, replacement) 时，会动态将函数 target 的执行指令替换成 `MOV rdx, replacement; JMP [rdx]`，
+//
+// 后续在调用函数 target 时，会执行 call 指令，这时候会把传递给函数 target 的参数保存到栈上，并且将返回地址保存到指定的寄存器 RA 中；
+// 因为函数 target 被替换成上诉两条指令，因此会跳转到函数 replacement 中执行，这时候函数 replacement 可以直接使用栈上的参数（这就要求两个函数要有相同的函数签名）；
+// 因为 morestack 操作是在函数开始执行的时候进行检查的，因此不会有栈溢出的问题。
+//
+// 当函数 replacement 执行完成时，会执行 ret 指令，这时候会把返回值保存到栈上，同时将 RA 中的返回地址弹出到 PC 寄存器中；
+// 对于函数调用者来说，整个过程是透明的。
+
+func replace(target, replacement uintptr) []byte {
+
+	// buildJmpDirective() 生成 `jmp replacement` 的机器码，用于替换 target
+	mockCode := buildJmpDirective(replacement)
+
+	// 取出旧函数 target 的开始 len(mockCode) 个字节的机器码，用于备份，以便恢复。
+	bytes := entryAddress(target, len(mockCode))
+
+	// 保存被替换的机器码到 original 数组中
 	original := make([]byte, len(bytes))
 	copy(original, bytes)
-	modifyBinary(target, code)
+
+	// 使用生成的机器码 mockCode 替换 target 函数
+	modifyBinary(target, mockCode)
+
+	// 返回被替换的旧代码
 	return original
 }
 
