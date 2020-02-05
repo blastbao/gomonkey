@@ -9,21 +9,32 @@ import (
 )
 
 func TestApplyInterfaceReused(t *testing.T) {
+
+    //
     e := &fake.Etcd{}
     
     Convey("TestApplyInterfaceReused", t, func() {
+
+        //
         patches := ApplyFunc(fake.NewDb, func(_ string) fake.Db {
             return e
         })
+
         defer patches.Reset()
+
+
+
+
         db := fake.NewDb("mysql")
 
         Convey("TestApplyInterface", func() {
             info := "hello interface"
+
             patches.ApplyMethod(reflect.TypeOf(e), "Retrieve",
                 func(_ *fake.Etcd, _ string) (string, error) {
                     return info, nil
                 })
+
             output, err := db.Retrieve("")
             So(err, ShouldEqual, nil)
             So(output, ShouldEqual, info)

@@ -47,14 +47,15 @@ func ApplyFuncVarSeq(target interface{}, outputs []OutputCell) *Patches {
 }
 
 func create() *Patches {
-	return &Patches{originals: make(map[reflect.Value][]byte), values: make(map[reflect.Value]reflect.Value)}
+	return &Patches{
+		originals: make(map[reflect.Value][]byte),
+		values: make(map[reflect.Value]reflect.Value),
+	}
 }
 
 func NewPatches() *Patches {
 	return create()
 }
-
-
 
 func (this *Patches) ApplyFunc(target, double interface{}) *Patches {
 	t := reflect.ValueOf(target)
@@ -73,15 +74,25 @@ func (this *Patches) ApplyMethod(target reflect.Type, methodName string, double 
 	return this.ApplyCore(m.Func, d)
 }
 
-func (this *Patches) ApplyGlobalVar(target, double interface{}) *Patches {
+func (this *Patches) ApplyGlobalVar(target, replacement interface{}) *Patches {
+
+	// 取 target 的值
 	t := reflect.ValueOf(target)
+
+	// target 必须是个指针
 	if t.Type().Kind() != reflect.Ptr {
 		panic("target is not a pointer")
 	}
 
+	// 把 target 暂存到 this.values[] 里
 	this.values[t] = reflect.ValueOf(t.Elem().Interface())
-	d := reflect.ValueOf(double)
+
+	// 取 replacement 的值
+	d := reflect.ValueOf(replacement)
+
+	// 替换掉 target 的值
 	t.Elem().Set(d)
+
 	return this
 }
 
@@ -137,26 +148,36 @@ func (this *Patches) Reset() {
 }
 
 func (this *Patches) ApplyCore(target, replacement reflect.Value) *Patches {
+
+	// 类型检查
 	this.check(target, replacement)
+
+	// 检查是否已经被 mock
 	if _, ok := this.originals[target]; ok {
 		panic("patch has been existed")
 	}
+
+	// replace
 	original := replace(*(*uintptr)(getPointer(target)), uintptr(getPointer(replacement)))
+
+	// 将被覆盖的函数保存到 this.originals 中，以便后续恢复
 	this.originals[target] = original
+
 	return this
 }
 
-func (this *Patches) check(target, double reflect.Value) {
+func (this *Patches) check(target, replacement reflect.Value) {
+
 	if target.Kind() != reflect.Func {
 		panic("target is not a func")
 	}
 
-	if double.Kind() != reflect.Func {
-		panic("double is not a func")
+	if replacement.Kind() != reflect.Func {
+		panic("replacement is not a func")
 	}
 
-	if target.Type() != double.Type() {
-		panic(fmt.Sprintf("target type(%s) and double type(%s) are different", target.Type(), double.Type()))
+	if target.Type() != replacement.Type() {
+		panic(fmt.Sprintf("target type(%s) and replacement type(%s) are different", target.Type(), replacement.Type()))
 	}
 }
 
@@ -189,10 +210,12 @@ func replace(target, replacement uintptr) []byte {
 }
 
 func getDoubleFunc(funcType reflect.Type, outputs []OutputCell) reflect.Value {
+
+
 	if funcType.NumOut() != len(outputs[0].Values) {
-		panic(fmt.Sprintf("func type has %v return values, but only %v values provided as double",
-			funcType.NumOut(), len(outputs[0].Values)))
+		panic(fmt.Sprintf("func type has %v return values, but only %v values provided as double", funcType.NumOut(), len(outputs[0].Values)))
 	}
+
 
 	slice := make([]Params, 0)
 	for _, output := range outputs {
@@ -219,18 +242,36 @@ func getDoubleFunc(funcType reflect.Type, outputs []OutputCell) reflect.Value {
 }
 
 func GetResultValues(funcType reflect.Type, results ...interface{}) []reflect.Value {
-	var resultValues []reflect.Value
+
+	//
+	var resultValues [] reflect.Value
+
+	//
 	for i, r := range results {
+
+		//
 		var resultValue reflect.Value
+
+		//
 		if r == nil {
+
+			//
 			resultValue = reflect.Zero(funcType.Out(i))
+
 		} else {
+
+			//
 			v := reflect.New(funcType.Out(i))
 			v.Elem().Set(reflect.ValueOf(r))
 			resultValue = v.Elem()
+
 		}
+
+
 		resultValues = append(resultValues, resultValue)
+
 	}
+
 	return resultValues
 }
 
